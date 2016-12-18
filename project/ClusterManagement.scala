@@ -14,8 +14,9 @@ object ClusterManagement {
 
   val appDependencies = Seq(
     Logging.slf4j,
+    Akka.actor,
     Akka.cluster,
-    test(scalaLang.testKit))
+  Orkestra.rorschach)
 
   val settings = BuildSettings.commonSettings(appName) ++
     jacoco.settings ++

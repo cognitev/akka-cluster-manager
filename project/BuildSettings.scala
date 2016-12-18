@@ -12,7 +12,8 @@ object BuildSettings {
       buildInfoPackage := appName,
       resolvers ++= Seq(Resolvers.sonatypeSnapshots, 
                         Resolvers.typesafe, 
-                        Resolvers.sonatype)
+                        Resolvers.sonatype,
+      Resolvers.mc)
     ) ++ FormatSettings.settings
 
 }
