@@ -10,11 +10,8 @@ object Dependencies {
     val sonatype = "sonatype" at "http://oss.sonatype.org/content/repositories/releases"
     val sonatypeSnapshots = "sonatype-snapshots" at "http://oss.sonatype.org/content/repositories/snapshots"
     val local = Resolver.file("Local repo", file(System.getProperty("user.home") + "/.ivy2/local"))(Resolver.ivyStylePatterns)
+    val mc = Resolver.bintrayRepo("menacommere", "maven")
     val commons = Seq(typesafe, sonatype, local)
-  }
-
-  object Auth {
-    val scalaoauth2 = "com.nulab-inc" %% "akka-http-oauth2-provider" % "0.18.0"
   }
 
   object scalaLang {
@@ -31,9 +28,14 @@ object Dependencies {
     val json = "com.typesafe.play" %% "play-json" % "2.3.4"
   }
 
+  object Orkestra {
+    val rorschach = "io.orkestra.rorschach" % "rorschach_2.11" % "0.1.0"
+  }
+
   object Akka {
     val version = "2.4.14"
     val httpVersion = "10.0.0"
+    val actor = "com.typesafe.akka" %% "akka-actor" % version
     val http = "com.typesafe.akka" %% "akka-http" % httpVersion
     val cluster = "com.typesafe.akka" %% "akka-cluster" % version
   }
