@@ -12,16 +12,19 @@ object ClusterManagement {
 
   val defaultVersion = "1.0"
 
+  val license = Seq("MIT" -> url("http://opensource.org/licenses/MIT"))
+
   val appDependencies = Seq(
     Logging.slf4j,
     Akka.actor,
     Akka.cluster,
-  Orkestra.rorschach)
+    Orkestra.rorschach)
 
   val settings = BuildSettings.commonSettings(appName) ++
     jacoco.settings ++
     Seq(parallelExecution in jacoco.Config := false) ++
     Seq(name := appName,
       version := defaultVersion,
+      licenses := license,
       libraryDependencies ++= appDependencies)
 }
