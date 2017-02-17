@@ -58,6 +58,10 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   }
 
   def clusterPassiveHandler: Receive = {
+    case MemberJoined(member) =>
+      log.info(s"Joining Member $member")
+      cleanCluster
+
     case MemberUp(member) =>
       if (isDependency(member)) {
         log.info(s"Registering dependency $member")
@@ -128,7 +132,7 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
     }
 
   def addRouter(role: String): Unit = {
-    val router = system.actorOf(Props(new RouterRR(roleToId(role))), (role + "-router"))
+    val router = system.actorOf(Props(new RouterRR(roleToId(role), cluster)), (role + "-router"))
     context.watch(router)
     log.info(s"Adding router with role $role")
     routers = routers + (role -> router)
@@ -151,6 +155,14 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
         routers(role) ! RecoverRoutee(path)
       }
     }
+
+  def cleanCluster = {
+    log.debug(s"Cleaning cluster $routers")
+    routers.map { kv =>
+      log.debug(s"Cleaning Router $kv")
+      kv._2 ! CleanQuarantine
+    }
+  }
 
 }
 
