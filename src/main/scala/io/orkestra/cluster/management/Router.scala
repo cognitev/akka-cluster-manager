@@ -2,8 +2,9 @@ package io.orkestra.cluster.management
 
 import scala.collection.immutable.Queue
 import akka.actor._
+import akka.cluster.Cluster
 
-class RouterRR(memberId: String)
+class RouterRR(memberId: String, cluster: Cluster)
     extends Actor
     with ActorLogging {
 
@@ -33,6 +34,9 @@ class RouterRR(memberId: String)
     case RecoverRoutee(path) =>
       recoverMember(path)
 
+    case CleanQuarantine =>
+      quarantineCleaner
+
     case ActorIdentity(`memberId`, Some(routeeRef)) =>
       registerMember(routeeRef)
 
@@ -57,10 +61,6 @@ class RouterRR(memberId: String)
 
   def removeMember(path: ActorPath) = {
     members = members.filter(_.path != path)
-    if (members.size == 0) {
-      log.warning("Router is empty, terminating")
-      context.stop(self)
-    }
   }
 
   def getMember: Option[ActorRef] =
@@ -86,6 +86,13 @@ class RouterRR(memberId: String)
   def isQuarantine(path: ActorPath) =
     quarantineMembers.filter(_.path == path).nonEmpty
 
+  def quarantineCleaner = {
+    log.debug("Quarantine is being cleaned...")
+    quarantineMembers map { m =>
+      log.warning(s"Removing quarantined member ${m.path.address}")
+      cluster.down(m.path.address)
+    }
+  }
 }
 
 object RouterRR {
@@ -95,4 +102,5 @@ object RouterRR {
   case class RecoverRoutee(x: ActorPath)
   case class GetRoutee(role: String)
   case class Routee(ref: Option[ActorRef])
+  case object CleanQuarantine
 }
