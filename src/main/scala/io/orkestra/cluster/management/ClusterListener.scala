@@ -60,7 +60,8 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   def clusterPassiveHandler: Receive = {
     case MemberJoined(member) =>
       log.info(s"Joining Member $member")
-      cleanCluster
+      if (isWatchdog)
+        cleanCluster
 
     case MemberUp(member) =>
       if (isDependency(member)) {
@@ -163,6 +164,9 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       kv._2 ! CleanQuarantine
     }
   }
+
+  def isWatchdog: Boolean =
+    cluster.selfRoles.map(_.toLowerCase).contains("watchdog")
 
 }
 
