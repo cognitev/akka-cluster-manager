@@ -10,7 +10,7 @@ object ClusterManagement {
 
   val appName = "ClusterManagement"
 
-  val defaultVersion = "1.2"
+  val defaultVersion = "1.3"
 
   val license = Seq("MIT" -> url("http://opensource.org/licenses/MIT"))
 
