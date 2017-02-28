@@ -58,10 +58,11 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   }
 
   def clusterPassiveHandler: Receive = {
+
     case MemberJoined(member) =>
       log.info(s"Joining Member $member")
       if (isWatchdog)
-        cleanCluster
+        cleanCluster(member)
 
     case MemberUp(member) =>
       if (isDependency(member)) {
@@ -157,11 +158,16 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       }
     }
 
-  def cleanCluster = {
+  def cleanCluster(member: Member) = {
     log.debug(s"Cleaning cluster $routers")
     routers.map { kv =>
       log.debug(s"Cleaning Router $kv")
-      kv._2 ! CleanQuarantine
+      member.roles.intersect(dependencies).map { role =>
+        // For each role
+        // only the valid role will not be downed
+        val path = RootActorPath(member.address) / "user" / roleToId(role)
+        kv._2 ! CleanQuarantine(path)
+      }
     }
   }
 

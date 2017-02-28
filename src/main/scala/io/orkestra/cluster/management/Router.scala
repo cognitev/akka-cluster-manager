@@ -34,8 +34,8 @@ class RouterRR(memberId: String, cluster: Cluster)
     case RecoverRoutee(path) =>
       recoverMember(path)
 
-    case CleanQuarantine =>
-      quarantineCleaner
+    case CleanQuarantine(path) =>
+      quarantineCleaner(path)
 
     case ActorIdentity(`memberId`, Some(routeeRef)) =>
       registerMember(routeeRef)
@@ -86,9 +86,9 @@ class RouterRR(memberId: String, cluster: Cluster)
   def isQuarantine(path: ActorPath) =
     quarantineMembers.filter(_.path == path).nonEmpty
 
-  def quarantineCleaner = {
+  def quarantineCleaner(path: ActorPath) = {
     log.debug("Quarantine is being cleaned...")
-    quarantineMembers map { m =>
+    quarantineMembers.filter(_.path != path).map { m =>
       log.warning(s"Removing quarantined member ${m.path.address}")
       cluster.down(m.path.address)
     }
@@ -102,5 +102,5 @@ object RouterRR {
   case class RecoverRoutee(x: ActorPath)
   case class GetRoutee(role: String)
   case class Routee(ref: Option[ActorRef])
-  case object CleanQuarantine
+  case class CleanQuarantine(path: ActorPath)
 }
