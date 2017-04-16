@@ -60,6 +60,8 @@ class RouterRR(memberId: String, cluster: Cluster)
   }
 
   def removeMember(path: ActorPath) = {
+    log.info(s"removing member: $path from router and downing it")
+    cluster.down(path.address)
     members = members.filter(_.path != path)
   }
 
@@ -87,8 +89,8 @@ class RouterRR(memberId: String, cluster: Cluster)
     quarantineMembers.filter(_.path == path).nonEmpty
 
   def quarantineCleaner(path: ActorPath) = {
-    log.debug("Quarantine is being cleaned...")
-    quarantineMembers.filter(_.path != path).map { m =>
+    log.debug(s"Quarantine is being cleaned of $path...")
+    quarantineMembers.filter(_.path == path).map { m =>
       log.warning(s"Removing quarantined member ${m.path.address}")
       cluster.down(m.path.address)
     }
