@@ -2,9 +2,11 @@ package io.orkestra.cluster.management
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
+import akka.cluster.http.management.ClusterHttpManagement
 import akka.cluster.{MemberStatus, Member, Cluster}
 import com.typesafe.config.ConfigFactory
 import scala.collection.JavaConversions._
+import scala.concurrent.duration._
 
 import io.orkestra.cluster.protocol.{Register, RegisterInternal}
 
@@ -12,13 +14,17 @@ import io.orkestra.rorschach.Rorschach
 
 class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   import RouterRR._
+  import ClusterListener._
 
   implicit val system = context.system
+  implicit val ec = context.dispatcher
+
   val cluster = Cluster(system)
 
+  val httpClusterManagement = ClusterHttpManagement(cluster).start()
+
   val config = ConfigFactory.load
-  val dependencies = config.getStringList(s"$serviceName.dependencies").toSet
-  val sharedRoles = config.getStringList(s"$serviceName.sharedRoles").toSet
+  val downingTime = config.getInt("clustering.unreachable-down-after")
 
   var routers = Map[String, ActorRef]()
   var internalActors = Map[String, ActorRef]()
@@ -26,12 +32,6 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   val rorschach = Rorschach(self, cluster)
 
   def roleToId(role: String) = role + "-backend"
-
-  def isDependency(member: Member) =
-    member.roles.intersect(dependencies).nonEmpty
-
-  def isDependent(member: Member) =
-    member.roles.intersect(sharedRoles).nonEmpty
 
   override def preStart(): Unit = {
     cluster.subscribe(self, classOf[ClusterDomainEvent])
@@ -61,35 +61,32 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
 
     case MemberJoined(member) =>
       log.info(s"Joining Member $member")
-      if (isWatchdog)
-        cleanCluster(member)
 
     case MemberUp(member) =>
-      if (isDependency(member)) {
-        log.info(s"Registering dependency $member")
-        registerMember(member)
-      }
-      if (isDependent(member)) {
-        log.info(s"Found dependent service $member, sending a register probe")
-        registerToDependent(member)
-      }
+      log.info(s"$member is up. registering it and sending a register probe")
+      registerMember(member)
+      registerToMember(member)
 
-    case UnreachableMember(member) if isDependency(member) =>
-      log.info(s"Removing [Unreachable] $member")
+    case UnreachableMember(member) =>
+      log.info(s"[Unreachable] $member")
       rorschach.reportUnreachable(member)
-      quarantineMember(member)
+      val state = cluster.state
+      if (isMajority(state.members.size, state.unreachable.size)) {
+        if (member.status == MemberStatus.up) scheduletakeDown(member)
+        else removeMember(member)
+      }
 
-    case ReachableMember(member) if isDependency(member) =>
+    case ReachableMember(member) =>
       log.info(s"Reachable member: $member")
       rorschach.reportReachable(member)
       recoverMember(member)
 
-    case MemberRemoved(member, MemberStatus.Up) if isDependency(member) =>
+    case MemberRemoved(member, MemberStatus.Up) =>
       log.info(s"Removing [Removed] $member")
       rorschach.reportDown(member)
       removeMember(member)
 
-    case Register(memberRef, role) if dependencies.contains(role) =>
+    case Register(memberRef, role) =>
       if (!routers.contains(role))
         addRouter(role)
       log.info(s"Registering member ${memberRef.path}")
@@ -100,32 +97,34 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       routers = routers.filter((entry: (String, ActorRef)) => entry._2 != routerRef)
       SupervisorStrategy
 
-    case (event: ClusterDomainEvent) =>
-      log.debug(s"Cluster Wide Event: $event")
-
+    case DownManual(member) =>
+      log.info(s"downing member: $member")
+      member.roles.map { role =>
+        val path = RootActorPath(member.address) / "user" / roleToId(role)
+        routers(role) ! CleanQuarantine(path)
+      }
   }
   def receive = clusterPassiveHandler orElse internalActiveHandler orElse subActorHandler
 
-  def registerToDependent(member: Member): Unit =
+  def registerToMember(member: Member): Unit =
     if (member.roles != cluster.selfRoles) {
       val path = RootActorPath(member.address) / "user" / "cluster-socket"
-      internalActors map { (pair: (String, ActorRef)) =>
+      internalActors foreach { (pair: (String, ActorRef)) =>
         log.info(s"Registering ${pair._1} on ${pair._1} to dependent actor $path")
         context.actorSelection(path) ! Register(pair._2, pair._1)
       }
     }
 
   def registerMember(member: Member): Unit =
-    member.roles.intersect(dependencies).map { role =>
-      if (!routers.contains(role))
-        addRouter(role)
+    member.roles.foreach { role =>
+      if (!routers.contains(role)) addRouter(role)
       log.info(s"Registering $member to router with role $role")
       val path = RootActorPath(member.address) / "user" / roleToId(role)
       routers(role) ! RegisterRoutee(path)
     }
 
   def removeMember(member: Member): Unit =
-    member.roles.intersect(dependencies).map { role =>
+    member.roles.foreach { role =>
       if (routers.contains(role)) {
         log.info(s"Removing $member from router with role $role")
         val path = RootActorPath(member.address) / "user" / roleToId(role)
@@ -140,45 +139,41 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
     routers = routers + (role -> router)
   }
 
-  def quarantineMember(member: Member): Unit =
-    member.roles.intersect(dependencies).map { role =>
-      if (routers.contains(role)) {
-        log.info(s"Quaranting member ${member} from router with role: ${role}")
-        val path = RootActorPath(member.address) / "user" / roleToId(role)
-        routers(role) ! QuarantineRoutee(path)
-      }
-    }
-
   def recoverMember(member: Member): Unit =
-    member.roles.intersect(dependencies).map { role =>
+    member.roles.foreach { role =>
       if (routers.contains(role)) {
-        log.info(s"Quaranting member ${member} from router with role: ${role}")
+        log.info(s"recovering member ${member} from router with role: ${role}")
         val path = RootActorPath(member.address) / "user" / roleToId(role)
         routers(role) ! RecoverRoutee(path)
       }
     }
 
-  def cleanCluster(member: Member) = {
-    log.debug(s"Cleaning cluster $routers")
-    routers.map { kv =>
-      log.debug(s"Cleaning Router $kv")
-      member.roles.intersect(dependencies).map { role =>
-        // For each role
-        // only the valid role will not be downed
+  private def majority(n: Int): Int = (n + 1) / 2 + (n + 1) % 2
+
+  private def isMajority(total: Int, dead: Int): Boolean = {
+    require(total > 0)
+    require(dead >= 0)
+    (total - dead) >= majority(total)
+  }
+
+  private def scheduletakeDown(member: Member) = {
+    member.roles.map { role =>
+      if (routers.contains(role)) {
+        log.info(s"Quaranting member ${member} from router with role: ${role}")
         val path = RootActorPath(member.address) / "user" / roleToId(role)
-        kv._2 ! CleanQuarantine(path)
+        routers(role) ! QuarantineRoutee(path)
+        log.info(s"scheduling take down of unreachable member: $member in $downingTime seconds")
+        context.system.scheduler.scheduleOnce(downingTime seconds, self, DownManual(member))
       }
     }
   }
-
-  def isWatchdog: Boolean =
-    cluster.selfRoles.map(_.toLowerCase).contains("watchdog")
 
 }
 
 object ClusterListener {
 
+  case class DownManual(member: Member)
+
   def props(serviceName: String) =
     Props(new ClusterListener(serviceName))
 }
-
