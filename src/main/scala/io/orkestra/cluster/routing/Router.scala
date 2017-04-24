@@ -1,8 +1,11 @@
-package io.orkestra.cluster.management
+package io.orkestra.cluster.routing
+
+import io.orkestra.cluster.protocol.Response.Success.RouteeDeleted
+import io.orkestra.cluster.routing.ClusterListener.DeleteRoutee
 
 import scala.collection.immutable.Queue
 import akka.actor._
-import akka.cluster.Cluster
+import akka.cluster.{Member, Cluster}
 
 class RouterRR(memberId: String, cluster: Cluster)
     extends Actor
@@ -16,8 +19,11 @@ class RouterRR(memberId: String, cluster: Cluster)
 
   def receive = {
 
-    case GetRoutee(role) =>
+    case GetRoutee =>
       sender ! Routee(getMember)
+
+    case GetRoutees =>
+      sender ! members.toList
 
     case RegisterRoutee(path) =>
       if (isQuarantine(path))
@@ -27,6 +33,10 @@ class RouterRR(memberId: String, cluster: Cluster)
 
     case RemoveRoutee(path) =>
       removeMember(path)
+
+    case DeleteRoutee(role, path) =>
+      members = members.filterNot(_.path.toString == path)
+      sender ! RouteeDeleted(role, path)
 
     case QuarantineRoutee(path) =>
       quarantineMember(path)
@@ -103,6 +113,7 @@ object RouterRR {
   case class QuarantineRoutee(x: ActorPath)
   case class RecoverRoutee(x: ActorPath)
   case class GetRoutee(role: String)
+  case object GetRoutees
   case class Routee(ref: Option[ActorRef])
   case class CleanQuarantine(path: ActorPath)
 }

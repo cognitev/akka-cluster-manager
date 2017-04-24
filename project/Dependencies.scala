@@ -38,7 +38,6 @@ object Dependencies {
     val actor = "com.typesafe.akka" %% "akka-actor" % version
     val http = "com.typesafe.akka" %% "akka-http" % httpVersion
     val cluster = "com.typesafe.akka" %% "akka-cluster" % version
-    val httpMgt = "com.lightbend.akka" %% "akka-management-cluster-http" % "0.1-RC1"
   }
 
 }

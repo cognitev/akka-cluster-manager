@@ -1,13 +1,16 @@
-package io.orkestra.cluster.management
+package io.orkestra.cluster.routing
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
-import akka.cluster.http.management.ClusterHttpManagement
 import akka.cluster.{MemberStatus, Member, Cluster}
 import com.typesafe.config.ConfigFactory
+import io.orkestra.cluster.protocol.Response.Failure.RouterNotFound
+import io.orkestra.cluster.protocol.Response.Success.{Routers, Router}
+import play.api.libs.json.{Json, Format}
 import scala.collection.JavaConversions._
+import scala.concurrent.Future
 import scala.concurrent.duration._
-
+import akka.pattern.ask
 import io.orkestra.cluster.protocol.{Register, RegisterInternal}
 
 import io.orkestra.rorschach.Rorschach
@@ -20,8 +23,6 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   implicit val ec = context.dispatcher
 
   val cluster = Cluster(system)
-
-  val httpClusterManagement = ClusterHttpManagement(cluster).start()
 
   val config = ConfigFactory.load
   val downingTime = config.getInt("clustering.unreachable-down-after")
@@ -40,6 +41,8 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   override def postStop(): Unit = {
     cluster.unsubscribe(self)
   }
+
+  def receive = clusterPassiveHandler orElse internalActiveHandler orElse subActorHandler orElse routersManagement
 
   def subActorHandler: Receive = {
     case RegisterInternal(internalRef, role) =>
@@ -72,7 +75,10 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       rorschach.reportUnreachable(member)
       val state = cluster.state
       if (isMajority(state.members.size, state.unreachable.size)) {
-        if (member.status == MemberStatus.up) scheduletakeDown(member)
+        if (member.status == MemberStatus.up ||
+          member.status == MemberStatus.joining ||
+          member.status == MemberStatus.weaklyUp)
+          scheduletakeDown(member)
         else removeMember(member)
       }
 
@@ -104,7 +110,40 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
         routers(role) ! CleanQuarantine(path)
       }
   }
-  def receive = clusterPassiveHandler orElse internalActiveHandler orElse subActorHandler
+
+  def routersManagement: Receive = {
+    case GetRouters =>
+      log.debug(s"getting routers")
+      val requester = sender()
+      val res = routers.map { r =>
+        (r._2 ? GetRoutees)(3.seconds).map {
+          case routees: List[ActorRef] =>
+            Json.toJson(Router(r._1, routees.map(_.path.toString)))
+        }
+      }
+      Future.sequence(res).map { x =>
+        requester ! Routers(x)
+      }
+    case GetRouter(role) =>
+      log.debug(s"getting router $role")
+      val requester = sender()
+      if (routers.contains(role)) {
+        (routers(role) ? GetRoutees)(3.seconds).map {
+          case routees: List[ActorRef] =>
+            requester ! Router(role, routees.map(_.path.toString))
+        }
+      } else {
+        sender ! RouterNotFound(role)
+      }
+
+    case msg: DeleteRoutee =>
+      val role = msg.role
+      if (routers.contains(role)) {
+        routers(role) forward msg
+      } else {
+        sender ! RouterNotFound(role)
+      }
+  }
 
   def registerToMember(member: Member): Unit =
     if (member.roles != cluster.selfRoles) {
@@ -167,12 +206,16 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       }
     }
   }
-
 }
 
 object ClusterListener {
 
   case class DownManual(member: Member)
+
+  sealed trait ManagementReguest
+  case object GetRouters extends ManagementReguest
+  case class GetRouter(role: String) extends ManagementReguest
+  case class DeleteRoutee(role: String, path: String) extends ManagementReguest
 
   def props(serviceName: String) =
     Props(new ClusterListener(serviceName))
