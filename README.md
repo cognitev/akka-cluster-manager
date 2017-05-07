@@ -11,6 +11,7 @@ libraryDependencies += "io.orkestra.ClusterManagement" % "clustermanagement_2.11
 # using the library
 after including the library into your project, you need to provide some environmental variables to override the default configuration in the application.conf file like the seed node hostname and port and various other configurations.
 a list of all available env variables that you can provide:
+
 Env | Example | Description
 --- | ------- | -----------
 CLUSTER_NAME | orkestra | this is the name of the cluster and it should be the same in all your services
