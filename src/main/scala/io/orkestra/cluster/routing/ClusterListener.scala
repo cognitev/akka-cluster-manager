@@ -32,7 +32,7 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
 
   val rorschach = Rorschach(self, cluster)
 
-  def roleToId(role: String) = role + "-backend"
+  def roleToId(role: String) = role + "-handler"
 
   override def preStart(): Unit = {
     cluster.subscribe(self, classOf[ClusterDomainEvent])
@@ -202,7 +202,7 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
         val path = RootActorPath(member.address) / "user" / roleToId(role)
         routers(role) ! QuarantineRoutee(path)
         log.info(s"scheduling take down of unreachable member: $member in $downingTime seconds")
-        context.system.scheduler.scheduleOnce(downingTime seconds, self, DownManual(member))
+        context.system.scheduler.scheduleOnce(downingTime.seconds, self, DownManual(member))
       }
     }
   }

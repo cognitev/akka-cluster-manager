@@ -26,7 +26,7 @@ class HttpManagementServer(clusterListener: ActorRef, hostName: String = "127.0.
   import PlayJsonSupport._
 
   def handleOrkestraRequest(req: ManagementReguest) =
-    (clusterListener ? req)(3 seconds).map {
+    (clusterListener ? req)(3.seconds).map {
       case res: Success =>
         res.httpStatusCode -> res.asJson
       case res: Failure =>
@@ -72,4 +72,3 @@ class HttpManagementServer(clusterListener: ActorRef, hostName: String = "127.0.
     }
 
 }
-
