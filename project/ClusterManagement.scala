@@ -10,7 +10,7 @@ object ClusterManagement {
 
   val appName = "ClusterManagement"
 
-  val defaultVersion = "1.4"
+  val defaultVersion = "2.0"
 
   val license = Seq("MIT" -> url("http://opensource.org/licenses/MIT"))
 
@@ -18,7 +18,6 @@ object ClusterManagement {
     Logging.slf4j,
     Akka.actor,
     Akka.cluster,
-    Akka.httpMgt,
     Orkestra.rorschach)
 
   val settings = BuildSettings.commonSettings(appName) ++
