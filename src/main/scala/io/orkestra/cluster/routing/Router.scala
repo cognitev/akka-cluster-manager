@@ -19,7 +19,7 @@ class RouterRR(memberId: String, cluster: Cluster)
 
   def receive = {
 
-    case GetRoutee =>
+    case GetRoutee(role) =>
       sender ! Routee(getMember)
 
     case GetRoutees =>
