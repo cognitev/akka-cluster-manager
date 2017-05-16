@@ -32,8 +32,6 @@ lazy val root = project.in(file(".")).
   enablePlugins(BuildInfoPlugin).
   settings(ClusterManagement.settings: _*)
 
-Seq(cucumberSettings : _*)
-
 dockerRepository := Some("menacommere-docker-registry.bintray.io")
 
 dockerUpdateLatest := true
