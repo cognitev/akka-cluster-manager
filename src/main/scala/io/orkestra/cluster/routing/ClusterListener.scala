@@ -27,6 +27,8 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   val config = ConfigFactory.load
   val downingTime = config.getInt("clustering.unreachable-down-after")
 
+  private var downingSchedules: Map[Member, Cancellable] = Map.empty[Member, Cancellable]
+
   var routers = Map[String, ActorRef]()
   var internalActors = Map[String, ActorRef]()
 
@@ -70,7 +72,7 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       registerMember(member)
       registerToMember(member)
 
-    case UnreachableMember(member) =>
+    case UnreachableMember(member) if !member.roles.contains("lighthouse") =>
       log.info(s"[Unreachable] $member")
       rorschach.reportUnreachable(member)
       val state = cluster.state
@@ -185,6 +187,11 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
         val path = RootActorPath(member.address) / "user" / roleToId(role)
         routers(role) ! RecoverRoutee(path)
       }
+      if (downingSchedules.contains(member)) {
+        log.info(s"cancelling downing schedule for member ${member}")
+        downingSchedules(member).cancel
+        downingSchedules = downingSchedules - member
+      }
     }
 
   private def majority(n: Int): Int = (n + 1) / 2 + (n + 1) % 2
@@ -196,13 +203,13 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
   }
 
   private def scheduletakeDown(member: Member) = {
-    member.roles.map { role =>
+    member.roles.foreach { role =>
       if (routers.contains(role)) {
         log.info(s"Quaranting member ${member} from router with role: ${role}")
         val path = RootActorPath(member.address) / "user" / roleToId(role)
         routers(role) ! QuarantineRoutee(path)
         log.info(s"scheduling take down of unreachable member: $member in $downingTime seconds")
-        context.system.scheduler.scheduleOnce(downingTime.seconds, self, DownManual(member))
+        downingSchedules = downingSchedules + (member -> context.system.scheduler.scheduleOnce(downingTime.seconds, self, DownManual(member)))
       }
     }
   }
