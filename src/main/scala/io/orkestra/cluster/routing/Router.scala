@@ -60,6 +60,11 @@ class RouterRR(memberId: String, cluster: Cluster)
 
   }
 
+  /**
+    * probe this path to check if an actor is present on that path or not.
+    * if an actor is present then we will receive an actorRef for that actor and register it internally
+    * @param path actor path
+    */
   def probeRoutee(path: ActorPath) = {
     context.actorSelection(path) ! Identify(memberId)
   }
@@ -98,6 +103,11 @@ class RouterRR(memberId: String, cluster: Cluster)
   def isQuarantine(path: ActorPath) =
     quarantineMembers.filter(_.path == path).nonEmpty
 
+  /**
+    * remove tha actor from quarantine and mark its node as down
+    * this node will be out of the cluster permenantly and will be unrecoverable and will need to be restarted
+    * @param path the actor path
+    */
   def quarantineCleaner(path: ActorPath) = {
     log.debug(s"Quarantine is being cleaned of $path...")
     quarantineMembers.filter(_.path == path).map { m =>
