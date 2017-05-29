@@ -46,12 +46,18 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
 
   def receive = clusterPassiveHandler orElse internalActiveHandler orElse subActorHandler orElse routersManagement
 
+  /**
+    * responsible for registering the internal handler actor in the router
+    */
   def subActorHandler: Receive = {
     case RegisterInternal(internalRef, role) =>
       log.debug(s"Registered Internal Actor with $role, $internalRef")
       internalActors = internalActors + (role -> internalRef)
   }
 
+  /**
+    * responsible for getting routee from a specific router
+    */
   def internalActiveHandler: Receive = {
     case msg @ GetRoutee(role) if routers.contains(role) =>
       log.info(s"Forwarding to routee ${routers(role)} of role $role request")
@@ -62,6 +68,9 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       sender ! Routee(None)
   }
 
+  /**
+    * responsible for listening to cluster events
+    */
   def clusterPassiveHandler: Receive = {
 
     case MemberJoined(member) =>
@@ -72,6 +81,7 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       registerMember(member)
       registerToMember(member)
 
+      //TODO schedule shut down of the current node(self) in case it's not in the majority part of the cluster
     case UnreachableMember(member) if !member.roles.contains("lighthouse") =>
       log.info(s"[Unreachable] $member")
       rorschach.reportUnreachable(member)
@@ -113,6 +123,9 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       }
   }
 
+  /**
+    * responsible for managing the routers through the http layer
+    */
   def routersManagement: Receive = {
     case GetRouters =>
       log.debug(s"getting routers")
@@ -147,7 +160,11 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       }
   }
 
-  def registerToMember(member: Member): Unit =
+  /**
+    * send a Register message to the newly discovered member
+    * @param member of type akka cluster member
+    */
+  private def registerToMember(member: Member): Unit =
     if (member.roles != cluster.selfRoles) {
       val path = RootActorPath(member.address) / "user" / "cluster-socket"
       internalActors foreach { (pair: (String, ActorRef)) =>
@@ -156,7 +173,11 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       }
     }
 
-  def registerMember(member: Member): Unit =
+  /**
+    * register the newly discovered member in the internal router
+    * @param member of type akka cluster member
+    */
+  private def registerMember(member: Member): Unit =
     member.roles.foreach { role =>
       if (!routers.contains(role)) addRouter(role)
       log.info(s"Registering $member to router with role $role")
@@ -164,7 +185,11 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       routers(role) ! RegisterRoutee(path)
     }
 
-  def removeMember(member: Member): Unit =
+  /**
+    * remove this member from the internal router
+    * @param member member of type akka cluster member
+    */
+  private def removeMember(member: Member): Unit =
     member.roles.foreach { role =>
       if (routers.contains(role)) {
         log.info(s"Removing $member from router with role $role")
@@ -173,14 +198,23 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
       }
     }
 
-  def addRouter(role: String): Unit = {
+  /**
+    * a router is creatd for each role of the member so if a memebr has more than one role,
+    * a router will be created for each role
+    * @param role the role of the new member
+    */
+  private def addRouter(role: String): Unit = {
     val router = system.actorOf(Props(new RouterRR(roleToId(role), cluster)), (role + "-router"))
     context.watch(router)
     log.info(s"Adding router with role $role")
     routers = routers + (role -> router)
   }
 
-  def recoverMember(member: Member): Unit =
+  /**
+    * recover a member from quarantine and cancel its downing schedule
+    * @param member member of type akka cluster member
+    */
+  private def recoverMember(member: Member): Unit =
     member.roles.foreach { role =>
       if (routers.contains(role)) {
         log.info(s"recovering member ${member} from router with role: ${role}")
@@ -202,6 +236,12 @@ class ClusterListener(serviceName: String) extends Actor with ActorLogging {
     (total - dead) >= majority(total)
   }
 
+  /**
+    * quarantine an unreachable member and schedule its downing after a specified configurable time
+    * this only happens if the current node is in the majority part of the network partition based on the last known membership information
+    * this won't happen if the unreachable node is the seed node(lighthouse role)
+    * @param member member of type akka cluster member
+    */
   private def scheduletakeDown(member: Member) = {
     member.roles.foreach { role =>
       if (routers.contains(role)) {
