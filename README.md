@@ -41,7 +41,7 @@ let's say there is an ip service in the cluster and you would like to send a mes
 ```scala
 import io.orkestra.cluster.routing.RouterRR.GetRoutee
 private def getIPRoutee: Future[Option[ActorRef]] =
-    (clusterSocket ? GetRoutee("ip)) map {
+    (clusterSocket ? GetRoutee(ip)) map {
       case Routee(routee) =>
         routee
     }
