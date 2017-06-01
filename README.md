@@ -18,6 +18,10 @@ CLUSTER_NAME | orkestra | this is the name of the cluster and it should be the s
 HOSTNAME | localhost | the host name of the service
 NODE_EXTERNAL_PORT | 0 | netty.tcp.port (used if you are running your service inside docker)
 NODE_INTERNAL_PORT | 0 | netty.tcp.bind-port
+SEED_NODE_HOSTNAME | localhost | seed node hostname
+SEED_NODE_PORT | 2551 | seed node port
+SEED2_NODE_HOSTNAME | localhost | seed node 2 hostname
+SEED2_NODE_PORT | 2552 | seed node 2 port
 WEAKLY_UP_MEMBERS | on/off | not recommended to allow it in production
 UNREACHABLE_DOWN_AFTER | 60 | number of seconds before marking an unreachable node down
 
@@ -25,7 +29,7 @@ you should also provide the roles for your service in application.conf like this
 ```
 akka.cluster.roles = ["access, users"]
 ```
-in the boot of the application you have to instantiate a clustersocket actor which will join the cluster, act as a proxy for all the routers registered in every service and also listen to all cluster domain events
+in the boot of the application you have to instantiate a clustersocket actor which will make your service join the cluster, act as a proxy for all the routers registered in every service and also listen to all cluster domain events
 ```scala
 import io.orkestra.cluster.routing.ClusterListener
 val clusterSocket: ActorRef = system.actorOf(ClusterListener.props("orkestra"), "cluster-socket")
@@ -47,12 +51,30 @@ private def getIPRoutee: Future[Option[ActorRef]] =
     }
 ```
 
-there is also a management http server that you can spwn up during boot of your application that would allow you to view registered routees and
+seed node should have an extra role called **lighthouse** which will distinguish it inside the cluster preventing any other node from downing it.
+this is because the seed node has fixed ip which will prohibit its reincarnations from joining the cluster again in case it was marked down (in which case the only solution will be restarting the whole cluster).
+
+there is also a management http server that you can spawn up during boot of your application that would allow you to view registered routees and
 also delete a routee.
 ```scala
 import io.orkestra.cluster.management.HttpManagementServer
-new HttpManagementServer(clusterSocket, hostname, port).start
+new HttpManagementServer(clusterSocket, 127.0.0.1, 8888).start
 ```
+this will start a server on 127.0.0.1:8888 which u can use as following:
+```
+curl http://127.0.0.1:8888/orkestra/routers
+```
+this will get u all the registered routers and to get the routees in a specific router u can use:
+```
+curl http://127.0.0.1:8888/orkestra/routers/<router_name>
+```
+u can also delete a specific routee from a router using the following:
+```
+curl -XDEL http://127.0.0.1:8888/orkestra/routers/<router_name>/<routee_path>
+```
+
+p.s. this http layer will get you the registered routees from the library POV not akka's POV which was the main drive for its addition to
+check inconsistencies in the library and better debugging.
 
 # License
 the license is under MIT. see http://opensource.org/licenses/MIT
